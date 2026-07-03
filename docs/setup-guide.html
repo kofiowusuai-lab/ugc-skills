@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UGC Skills — Setup Guide</title>
+<style>
+  @page { size: Letter; margin: 20mm 22mm; }
+  :root{
+    --ink:#0f1720; --muted:#5b6b7a; --line:#e2e8ee; --soft:#f4f7fa;
+    --accent:#0d6efd; --accent2:#0a8f6b; --code-bg:#0f1720; --code-ink:#e8eef5;
+    --warn-bg:#fff8e6; --warn-line:#f0d38a; --ok-bg:#eafaf3; --ok-line:#9fe3c7;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    color:var(--ink); font-size:11.2px; line-height:1.6; -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  h1,h2,h3{ line-height:1.25; margin:0; }
+  code,kbd,pre{ font-family:"SF Mono",ui-monospace,Menlo,Consolas,"Liberation Mono",monospace; }
+  code{ background:var(--soft); border:1px solid var(--line); border-radius:4px; padding:1px 5px; font-size:.92em; color:#0b3d63; }
+  pre{
+    background:var(--code-bg); color:var(--code-ink); border-radius:9px; padding:13px 15px;
+    font-size:10.4px; line-height:1.55; overflow:auto; margin:9px 0; white-space:pre-wrap; word-break:break-word;
+  }
+  pre code{ background:none; border:none; color:inherit; padding:0; }
+  pre .c{ color:#7f97ab; }      /* comment */
+  pre .p{ color:#6ad08f; }      /* prompt marker */
+  a{ color:var(--accent); text-decoration:none; }
+
+  /* ---------- cover ---------- */
+  .cover{ padding:8mm 0 6mm; border-bottom:3px solid var(--ink); margin-bottom:9mm; }
+  .kicker{ font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--accent); font-weight:700; }
+  .cover h1{ font-size:38px; letter-spacing:-.5px; margin:8px 0 6px; }
+  .cover .sub{ font-size:14px; color:var(--muted); max-width:46em; }
+  .cover .meta{ margin-top:14px; font-size:11px; color:var(--muted); }
+  .repo-pill{ display:inline-block; background:var(--ink); color:#fff; border-radius:6px; padding:5px 11px; font-family:"SF Mono",ui-monospace,Menlo,monospace; font-size:11.5px; }
+
+  section{ margin:0 0 7mm; }
+  pre,table,.card,.callout,.grid2,.skill-row{ break-inside:avoid; }
+  .step-h{ break-inside:avoid; break-after:avoid; }
+  h2,h3{ break-after:avoid; }
+  h2{ font-size:17px; margin:0 0 3px; padding-top:2px; }
+  .step-h{ display:flex; align-items:center; gap:10px; margin:0 0 6px; }
+  .num{ flex:0 0 auto; width:24px; height:24px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; font-size:12.5px; display:flex; align-items:center; justify-content:center; }
+  h3{ font-size:13px; margin:14px 0 3px; }
+  p{ margin:6px 0; }
+  .lead{ color:var(--muted); }
+
+  ul,ol{ margin:6px 0; padding-left:20px; }
+  li{ margin:3px 0; }
+
+  .card{ border:1px solid var(--line); border-radius:10px; padding:12px 15px; background:#fff; }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  table{ width:100%; border-collapse:collapse; margin:8px 0; font-size:10.6px; }
+  th,td{ text-align:left; padding:7px 9px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th{ background:var(--soft); font-size:9.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+  td code{ font-size:.9em; }
+
+  .callout{ border-radius:9px; padding:10px 13px; margin:9px 0; font-size:10.6px; border:1px solid; }
+  .callout.warn{ background:var(--warn-bg); border-color:var(--warn-line); }
+  .callout.ok{ background:var(--ok-bg); border-color:var(--ok-line); }
+  .callout b{ color:var(--ink); }
+
+  .check{ list-style:none; padding-left:0; }
+  .check li{ position:relative; padding-left:24px; margin:5px 0; }
+  .check li::before{ content:""; position:absolute; left:2px; top:3px; width:13px; height:13px; border:2px solid var(--accent2); border-radius:4px; }
+
+  .pagebreak{ page-break-before:always; }
+  .foot{ margin-top:8mm; padding-top:5px; border-top:1px solid var(--line); font-size:9.5px; color:var(--muted); display:flex; justify-content:space-between; }
+  .tag{ display:inline-block; background:var(--soft); border:1px solid var(--line); border-radius:5px; padding:1px 7px; font-size:9.5px; color:var(--muted); margin-right:4px; }
+  .skill-row{ display:flex; gap:9px; padding:7px 0; border-bottom:1px solid var(--line); }
+  .skill-row:last-child{ border-bottom:none; }
+  .skill-name{ flex:0 0 150px; font-family:"SF Mono",ui-monospace,Menlo,monospace; font-size:10.4px; color:var(--accent2); font-weight:600; }
+  .skill-desc{ flex:1; font-size:10.6px; color:var(--ink); }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="kicker">Academy · Skill Pack</div>
+  <h1>UGC Skills Setup Guide</h1>
+  <div class="sub">Clone the UGC video-production skills into your own Claude Code and start making hyper-realistic avatar ads. This guide takes you from zero to your first rendered video.</div>
+  <div class="meta">
+    <span class="repo-pill">github.com/kofiowusuai-lab/ugc-skills</span>
+    &nbsp;&nbsp;·&nbsp;&nbsp; Public repo &nbsp;·&nbsp; MIT license &nbsp;·&nbsp; ~15 minutes to set up
+  </div>
+</div>
+
+<section>
+  <h2>What you are installing</h2>
+  <p class="lead">Five Claude Code skills plus the full generation engine behind them. Once installed, you invoke a skill by name (<code>/ugc-video-producer</code>) or just ask Claude in plain language.</p>
+  <div class="card" style="margin-top:8px">
+    <div class="skill-row"><div class="skill-name">ugc-video-producer</div><div class="skill-desc">The main pipeline. End-to-end talking-head spokesperson video: character, image-to-video, voice, lip-sync. Hand it a product and it writes the script first.</div></div>
+    <div class="skill-row"><div class="skill-name">ugc-ad-strategist</div><div class="skill-desc">The brain for the words. Researches the audience, mines winning ads, picks one claim, writes the hooks and beat sheet.</div></div>
+    <div class="skill-row"><div class="skill-name">ugc-device-screen</div><div class="skill-desc">Puts real, razor-sharp content on a phone or laptop screen inside the scene using real pixels, not generated text.</div></div>
+    <div class="skill-row"><div class="skill-name">ugc-minimax-mode</div><div class="skill-desc">The full pipeline adapted for a blind, text-only model. Claude handles the shot planning and vision QA.</div></div>
+    <div class="skill-row"><div class="skill-name">ugc-vision-referee</div><div class="skill-desc">Deprecated helper, folded into minimax-mode. Kept for reference.</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Before you start: the checklist</h2>
+  <p class="lead">Install these first. The skills call each one, so the pipeline needs them present.</p>
+  <div class="grid2">
+    <div class="card">
+      <h3 style="margin-top:0">Accounts &amp; tools</h3>
+      <ul class="check">
+        <li><b>A GitHub account</b> (free) to view and clone the repo</li>
+        <li><b>Claude Code</b> installed and signed in</li>
+        <li><b>Git</b> on your machine</li>
+        <li><b>Python 3.9+</b> and <b>Node.js 18+</b></li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Command-line tools</h3>
+      <ul class="check">
+        <li><b>grok</b> — xAI Grok CLI (image + video)</li>
+        <li><b>gemini</b> — Google Gemini CLI (vision QA)</li>
+        <li><b>ffmpeg</b> + <b>ffprobe</b> (video)</li>
+        <li><b>rubberband</b> (audio time-stretch)</li>
+      </ul>
+    </div>
+  </div>
+  <h3>API keys you will need</h3>
+  <table>
+    <tr><th>Key</th><th>Used for</th><th>Required?</th></tr>
+    <tr><td><code>ELEVENLABS_API_KEY</code></td><td>Voice generation and voice swap</td><td>Yes</td></tr>
+    <tr><td><code>GEMINI_API_KEY</code></td><td>Vision QA, rejecting off-model clips</td><td>Yes</td></tr>
+    <tr><td><code>WAVESPEED_API_KEY</code></td><td>Lip-sync re-animation</td><td>Optional</td></tr>
+  </table>
+  <div class="callout warn"><b>Heads up:</b> Grok, ElevenLabs, Gemini and WaveSpeed all bill per use. Start with short test clips before you run a batch.</div>
+</section>
+
+<section>
+  <div class="step-h"><div class="num">1</div><h2>Find the repository</h2></div>
+  <p>Open the repo in your browser to see the code, the README, and the file layout:</p>
+  <pre><code>https://github.com/kofiowusuai-lab/ugc-skills</code></pre>
+  <p>The repo is public, so you do not need an invite. You can read every file directly on GitHub before you clone. Click the green <b>Code</b> button to see the clone URL, or just copy the command in the next step.</p>
+</section>
+
+<section>
+  <div class="step-h"><div class="num">2</div><h2>Clone it to your machine</h2></div>
+  <p>Open a terminal, move into the folder where you keep projects, and clone:</p>
+  <pre><code><span class="c"># move to wherever you want the project to live</span>
+cd ~/projects
+
+<span class="c"># clone over HTTPS (works for everyone)</span>
+git clone https://github.com/kofiowusuai-lab/ugc-skills.git
+
+cd ugc-skills</code></pre>
+  <p class="lead">If you have the GitHub CLI, <code>gh repo clone kofiowusuai-lab/ugc-skills</code> does the same thing.</p>
+</section>
+
+<section>
+  <div class="step-h"><div class="num">3</div><h2>Run the installer</h2></div>
+  <p>One script copies the skills where Claude Code looks for them, installs the engine scripts, and drops the voice package in place. It backs up anything it would overwrite.</p>
+  <pre><code>bash install.sh</code></pre>
+  <p>It installs to three locations:</p>
+  <table>
+    <tr><th>What</th><th>Goes to</th></tr>
+    <tr><td>The five skills</td><td><code>~/.claude/skills/</code></td></tr>
+    <tr><td>The engine scripts</td><td><code>~/.openclaw/scripts/</code></td></tr>
+    <tr><td>The voice package</td><td><code>~/voiceswap/</code></td></tr>
+  </table>
+</section>
+
+<section>
+  <div class="step-h"><div class="num">4</div><h2>Add your API keys</h2></div>
+  <p>Copy the template, fill in your keys, then load it into your shell:</p>
+  <pre><code><span class="c"># create your private key file from the template</span>
+cp .env.example .env
+
+<span class="c"># open .env in any editor and paste your keys, then:</span>
+set -a; . ./.env; set +a</code></pre>
+  <div class="callout ok"><b>Your keys stay private.</b> The <code>.env</code> file is already listed in <code>.gitignore</code>, so it never gets committed or pushed. Run the <code>set -a</code> line once in each new terminal session before you use the skills.</div>
+</section>
+
+<section>
+  <div class="step-h"><div class="num">5</div><h2>Install the Python dependencies</h2></div>
+  <pre><code>python3 -m pip install -r requirements.txt</code></pre>
+  <p class="lead">This installs elevenlabs, opencv, numpy, scipy, Pillow and requests. Captions and revoice mode also want <code>openai-whisper</code>, which you can add later if you need them.</p>
+</section>
+
+<section>
+  <div class="step-h"><div class="num">6</div><h2>Verify Claude Code sees the skills</h2></div>
+  <p>Open Claude Code in any folder and type <code>/</code>. You should see the <code>ugc-</code> skills in the list. Or just ask:</p>
+  <pre><code><span class="p">you ›</span> make a UGC ad for a $27 ebook about meal prep</code></pre>
+  <p>Claude picks up <code>ugc-video-producer</code>, runs the strategist to write the script, then generates the video. If the skills do not appear, restart Claude Code so it re-scans <code>~/.claude/skills/</code>.</p>
+</section>
+
+<section>
+  <div class="step-h"><div class="num">7</div><h2>Make your first video</h2></div>
+  <p>Start small to keep costs low. A single short clip proves your keys and tools all work:</p>
+  <pre><code><span class="p">you ›</span> make a 6-second UGC talking-head clip:
+        a woman in a kitchen saying "honestly this
+        changed how I meal prep" — use the brittney voice</code></pre>
+  <p>From there you can ask for full ads, multi-clip videos, a product on a device screen, or a specific spokesperson. The skills handle the pipeline; you describe what you want.</p>
+</section>
+
+<section>
+  <h2>Keeping your copy up to date</h2>
+  <p>When the repo gets new skills or fixes, pull the changes and re-run the installer:</p>
+  <pre><code>cd ~/projects/ugc-skills
+git pull
+bash install.sh</code></pre>
+</section>
+
+<section>
+  <h2>Troubleshooting</h2>
+  <table>
+    <tr><th>Symptom</th><th>Fix</th></tr>
+    <tr><td>Skills do not show up in Claude Code</td><td>Restart Claude Code. Confirm the folders exist under <code>~/.claude/skills/ugc-*</code>.</td></tr>
+    <tr><td><code>ELEVENLABS_API_KEY not found</code></td><td>You did not load <code>.env</code> in this terminal. Run <code>set -a; . ./.env; set +a</code> again.</td></tr>
+    <tr><td><code>grok: command not found</code> or same for <code>gemini</code></td><td>The CLI is not on your PATH. Install it and reopen the terminal.</td></tr>
+    <tr><td><code>ffmpeg</code> / <code>rubberband</code> missing</td><td>macOS: <code>brew install ffmpeg rubberband</code>. Linux: <code>apt install ffmpeg rubberband-cli</code>.</td></tr>
+    <tr><td>A generated clip drifts off the character</td><td>Expected sometimes. The vision QA step rejects bad takes and retries. Let it finish.</td></tr>
+    <tr><td>Voice sounds wrong or has an accent</td><td>Use speech-to-speech, not text-to-speech. To use your own cloned voice: <code>export UGC_MY_VOICE="me=your_voice_id"</code> then ask for the <code>me</code> voice.</td></tr>
+  </table>
+  <div class="callout warn"><b>Note on motion graphics:</b> the optional captions and text-behind-avatar polish needs a separate render project that is not included. The pipeline notices it is missing and delivers the plain cut, so you can ignore the <code>--studio</code> and <code>--broll</code> flags.</div>
+</section>
+
+<div class="foot">
+  <span>UGC Skills Setup Guide</span>
+  <span>github.com/kofiowusuai-lab/ugc-skills · MIT</span>
+</div>
+
+</body>
+</html>

@@ -4,6 +4,8 @@ A complete toolkit for producing hyper-realistic UGC (user-generated-content) st
 
 These are [Claude Code Skills](https://docs.claude.com/en/docs/claude-code/skills). Once installed, you invoke them by name (`/ugc-video-producer`) or just by asking Claude in plain language ("make a UGC ad for my ebook").
 
+> **New here? Start with the printable setup guide:** [`docs/UGC-Skills-Setup-Guide.pdf`](docs/UGC-Skills-Setup-Guide.pdf) walks you from cloning this repo to your first rendered video in seven steps, with a prerequisites checklist and a troubleshooting table.
+
 ## What you get
 
 | Skill | What it does |
