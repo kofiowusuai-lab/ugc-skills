@@ -1,0 +1,8 @@
+# Python dependencies for the UGC skill engine scripts.
+# Install with:  python3 -m pip install -r requirements.txt
+elevenlabs>=1.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+scipy>=1.10.0
+Pillow>=10.0.0
+requests>=2.31.0

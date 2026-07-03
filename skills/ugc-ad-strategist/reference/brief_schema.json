@@ -1,0 +1,146 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UGC Ad Strategist brief.json",
+  "description": "The single artifact ugc-ad-strategist produces and ugc-video-producer consumes. One claim per ad.",
+  "type": "object",
+  "required": ["product", "avatar", "awareness_stage", "single_claim", "angle", "message_match", "base_still_prompt", "clips", "hooks", "platform_cuts", "voice", "utm_map", "funnel"],
+  "properties": {
+    "product": {
+      "type": "object",
+      "required": ["name", "company"],
+      "properties": {
+        "name": { "type": "string" },
+        "company": { "type": "string", "description": "key from ~/.openclaw/companies.json" },
+        "kind": { "type": "string", "enum": ["digital", "physical"] }
+      }
+    },
+    "avatar": {
+      "type": "object",
+      "description": "Who the ad talks to, in their own words (from voice-of-customer research).",
+      "required": ["segment", "core_pain", "core_desire"],
+      "properties": {
+        "segment": { "type": "string" },
+        "core_pain": { "type": "string" },
+        "core_desire": { "type": "string" },
+        "objections": { "type": "array", "items": { "type": "string" }, "description": "2-3 objections the script pre-handles" },
+        "customer_words": { "type": "array", "items": { "type": "string" }, "description": "verbatim phrases pulled from VoC research" }
+      }
+    },
+    "awareness_stage": {
+      "type": "string",
+      "enum": ["unaware", "problem_aware", "solution_aware", "product_aware", "most_aware"],
+      "description": "Schwartz awareness stage; dictates hook style and proof depth."
+    },
+    "market_sophistication": {
+      "type": "integer", "minimum": 1, "maximum": 5,
+      "description": "1=first to market claim, 5=mechanism/identity play. Dictates how much the hook must differentiate."
+    },
+    "single_claim": {
+      "type": "string",
+      "description": "THE one claim the whole ad supports. Capability/process claim, never an income guarantee."
+    },
+    "angle": { "type": "string", "description": "The strategic angle that carries the claim." },
+    "proof_object": { "type": "string", "description": "The load-bearing proof shown on screen (real app, real pages, real result)." },
+    "message_match": { "type": "string", "description": "The exact line that mirrors the landing page, for ad->LP congruence." },
+    "base_still_prompt": {
+      "type": "string",
+      "description": "ONE persona-seed prompt for the spokesperson, realism-directive compliant. Producer generates the identity anchor from this."
+    },
+    "clips": {
+      "type": "array",
+      "description": "Ordered beat sheet. Each clip is one 6-10s Grok shot. ~24-28 spoken words per 10s.",
+      "items": {
+        "type": "object",
+        "required": ["id", "seconds", "beat", "dialogue", "emotion", "action", "grok_prompt", "overlay"],
+        "properties": {
+          "id": { "type": "string", "description": "c1, c2, ..." },
+          "seconds": { "type": "number", "enum": [6, 10], "description": "Grok renders ONLY 6s or 10s. Size dialogue to fit: ~14-16 words @6s, ~24-28 @10s (QA Bank A1)." },
+          "beat": { "type": "string", "enum": ["hook", "proof", "mechanism", "escalation", "honest_8020", "cta"] },
+          "dialogue": { "type": "string", "description": "Exact spoken line. First-person past-tense testimonial. Filler words for realism." },
+          "emotion": { "type": "string", "description": "Delivery direction -> feeds the Grok animation prompt." },
+          "action": { "type": "string", "description": "Physical action/gesture/camera note. LOCKED-OFF camera when a screen must stay pinnable." },
+          "grok_prompt": { "type": "string", "description": "Ready-to-paste Grok image_to_video prompt for this clip." },
+          "overlay": { "type": "string", "description": "Burned-in caption (40%+ watch muted)." },
+          "screen_asset": {
+            "type": "object",
+            "description": "Present only for digital-product proof clips. Hands to ugc-device-screen.",
+            "properties": {
+              "pdf": { "type": "string", "description": "abs path to the real PDF/app to pin on the device" },
+              "pages": { "type": "string", "description": "page range, e.g. '12-15'" },
+              "device": { "type": "string", "enum": ["phone", "laptop"] },
+              "driven_by": { "type": "string", "enum": ["avatar_scroll", "playing_video"], "description": "screen only moves when the avatar drives it or a video plays" }
+            }
+          },
+          "product_shot": {
+            "type": "object",
+            "description": "Physical product anchor for a clip (e.g. holding the real hardcover). Producer builds a photoreal hardcover mockup from the REAL cover via book_mockup.py, then anchors it (never lets Grok invent the cover).",
+            "properties": {
+              "cover_image": { "type": "string", "description": "abs path to the REAL cover art (truthful source for the mockup), e.g. ~/code/aimastery-salespage/covers/ai-mastery-vol1.png" },
+              "book": { "type": "string", "description": "book/volume alias for book_mockup.py (vol1/vol2/vol3/workbook)" },
+              "staging": { "type": "string", "enum": ["hands", "desk", "stack"], "description": "how the physical book sits in the shot" },
+              "scarcity": { "type": "string", "description": "the verified scarcity status this shot supports, e.g. 'hardcopy_sold_out'. Only set when TRUE — false scarcity fails FTC/Meta and breaks house style." }
+            }
+          }
+        }
+      }
+    },
+    "hooks": {
+      "type": "array",
+      "description": "6 swappable hook variants, body+CTA held constant. <2.5s spoken, <25 words.",
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "line", "overlay"],
+        "properties": {
+          "id": { "type": "string", "description": "h1..h6 -> utm_content" },
+          "category": { "type": "string", "description": "speed_flex / skeptic_reversal / contrast / confession / cold_open / message_match" },
+          "line": { "type": "string" },
+          "overlay": { "type": "string" },
+          "platform_note": { "type": "string", "description": "e.g. 'TikTok/organic only — second-person attribute callout warns on Meta'" }
+        }
+      }
+    },
+    "platform_cuts": {
+      "type": "object",
+      "description": "Line swaps per platform/spend type. Paid speaks price (FTC); organic uses DM CTA.",
+      "required": ["paid", "organic"],
+      "properties": {
+        "paid": { "type": "object", "properties": { "cta_line": { "type": "string" }, "native_button": { "type": "string" }, "meta_safe_swaps": { "type": "array", "items": { "type": "string" } }, "tiktok_swaps": { "type": "array", "items": { "type": "string" } } } },
+        "organic": { "type": "object", "properties": { "cta_line": { "type": "string" } } },
+        "persistent_disclaimer": { "type": "string", "description": "e.g. 'My results. Results vary.' Spoken + on-screen." }
+      }
+    },
+    "voice": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "description": "ElevenLabs voice id. Default Brittney kPzsL2i3teMYv0FxEYQ6" },
+        "model": { "type": "string", "default": "eleven_multilingual_v2" },
+        "settings": { "type": "object", "properties": { "stability": { "type": "number" }, "similarity": { "type": "number" }, "style": { "type": "number" } } }
+      }
+    },
+    "utm_map": {
+      "type": "object",
+      "description": "UTM template per platform; <hook-id> placeholder filled per variant.",
+      "additionalProperties": { "type": "string" }
+    },
+    "funnel": {
+      "type": "object",
+      "required": ["lp_url", "price", "cta"],
+      "properties": {
+        "lp_url": { "type": "string" },
+        "price": { "type": "string" },
+        "anchor": { "type": "string" },
+        "cta": { "type": "string" },
+        "lp_headlines": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "market_winners": {
+      "type": "array",
+      "description": "Ranked active competitor/niche ads from ad_library_scout (longevity heuristic). Informs angle + differentiation.",
+      "items": {
+        "type": "object",
+        "properties": { "advertiser": { "type": "string" }, "hook": { "type": "string" }, "format": { "type": "string" }, "started": { "type": "string" }, "days_live": { "type": "integer" }, "offer": { "type": "string" }, "cta": { "type": "string" }, "variants": { "type": "integer" }, "source": { "type": "string" } }
+      }
+    }
+  }
+}

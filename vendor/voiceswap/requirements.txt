@@ -1,0 +1,6 @@
+elevenlabs>=2.0
+numpy>=1.24
+scipy>=1.10
+openai-whisper>=20231117   # only needed for `revoice` (re-narrate) mode
+# System tools required on PATH (not pip-installable):
+#   ffmpeg, ffprobe, rubberband

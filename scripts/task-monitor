@@ -1,0 +1,900 @@
+#!/usr/bin/env python3
+"""
+Task Monitor - single live-updating Telegram bubble for long tasks.
+
+The agent (the agent) calls this between meaningful steps so the shadow
+chairman sees real-time progress instead of a silent typing indicator.
+A background ticker keeps the elapsed timer ticking every 5 seconds
+even when the agent is silent, so the user knows the task is alive.
+
+Usage:
+  task-monitor start "Landing page demo" [--stages "Research,Planning,Building,Deploy"]
+      Prints the monitor id to stdout. Use it with every later call.
+
+  task-monitor stage  <id> <name> <status> [--detail "text"]
+      status = pending | active | done | failed
+      Sets/updates a stage. Auto-promotes unknown names to the end.
+      --detail appends to that stage's progress history (cap 6).
+
+  task-monitor detail <id> "Currently working on the mid section"
+      Appends a detail line to the currently active stage. Each stage
+      keeps a rolling history (last 3 lines shown while active, last 1
+      shown after completion). Use this between sub-steps inside a stage.
+
+  task-monitor note   <id> "free-form line"
+      Appends a one-line note under the stage block (scratchpad for decisions).
+      Last 4 notes are kept.
+
+  task-monitor finish <id> [--success|--fail] [--summary "text"]
+      Final render, stops the ticker, marks the monitor closed.
+
+  task-monitor show   <id>
+      Print the current rendered text to stdout (for debugging).
+
+State lives in ~/.openclaw/task-monitors/<id>.json.
+Telegram creds come from ~/.openclaw/.env (TELEGRAM_BOT_TOKEN, TELEGRAM_USER_ID).
+"""
+
+import argparse
+import fcntl
+import json
+import os
+import re
+import secrets
+import signal
+import subprocess
+import sys
+import time
+import urllib.parse
+import urllib.request
+import urllib.error
+from contextlib import contextmanager
+from pathlib import Path
+
+# Resolve "which bot/chat does this lane talk through" (Hermes - Main vs
+# Before Freedom HQ, etc). lane_route lives alongside this script.
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+try:
+    import lane_route
+except Exception:  # keep the monitor working even if the resolver is missing
+    lane_route = None
+
+STATE_DIR = Path.home() / ".openclaw" / "task-monitors"
+ENV_FILE = Path.home() / ".openclaw" / ".env"
+DEFAULT_LANE = "default"
+
+ICONS = {
+    "pending": "⏳",
+    "active": "🔧",
+    "done": "✅",
+    "failed": "❌",
+}
+
+MIN_EDIT_INTERVAL = 0.8       # seconds; coalesce faster edits in push_update
+# Live-timer refresh cadence. The bubble's elapsed clock advances every
+# TICK_INTERVAL seconds. This edits the SAME Telegram message on a loop, and
+# Telegram's flood control counts sustained same-message edits against the
+# WHOLE bot's send budget — a 1s cadence over a ~50-min render fired ~3000
+# edits and got the entire bot rate-limited for hours (2026-06-02). 10s gives
+# a snappy live timer at ~360 edits/hr, still well under Telegram's limits.
+# Override with HERMES_TASK_MONITOR_TICK, floored at 10s so it can't foot-gun.
+try:
+    TICK_INTERVAL = max(10.0, float(os.environ.get("HERMES_TASK_MONITOR_TICK", "10") or "10"))
+except (TypeError, ValueError):
+    TICK_INTERVAL = 10.0
+MAX_DETAILS_PER_STAGE = 6     # rolling history cap per stage
+MAX_TICKER_LIFETIME = 7200    # seconds; hard cap so a runaway ticker dies eventually
+REUSE_WINDOW = 6 * 3600       # seconds; reuse an open monitor for the same task within this window
+# Staleness: the ticker bumps the elapsed clock forever, so "live" alone never
+# means the WORK is alive. A monitor whose owning agent turn ended right after
+# opening (asked the user something, errored, or got replaced) sits with no real
+# progress while still showing "live". We track last_progress_ts (set only on real
+# stage/detail/note changes, NOT cosmetic timer edits) and flip the footer to a
+# stalled marker once progress goes quiet.
+NO_START_GRACE = 300          # seconds; all stages still pending this long after open = never started
+STALL_THRESHOLD = 1200        # seconds; a started monitor with no progress this long = stalled
+
+
+# --------------------------------------------------------------------------
+# env + telegram
+# --------------------------------------------------------------------------
+
+def resolve_lane(explicit=None):
+    """Pick the lane for a monitor: explicit arg > HERMES_MONITOR_LANE env > default.
+    A lane decides which bot/chat the bubble is sent through (see lane_route)."""
+    lane = (explicit or os.environ.get("HERMES_MONITOR_LANE") or DEFAULT_LANE).strip()
+    return lane or DEFAULT_LANE
+
+
+# Title markers that route a monitor to the dedicated UGC OPS lane (@UGCOPSbbot).
+# Kept tight so it never collides with Before Freedom episode titles.
+_UGC_TITLE_MARKERS = (
+    "ugc", "jasmine", "jzmncrzz", "gymgirl", "talking head", "talking-head",
+    "spokesperson", "testimonial", "street interview", "public interview",
+    "lip-sync", "lipsync", "avatar ad", "minimax", "video factory",
+)
+# Never let the UGC net steal a Before Freedom / america250 monitor.
+_NON_UGC_MARKERS = ("before freedom", "before_freedom", "america250", "america 250", "swamp fox")
+
+def classify_lane(lane, title):
+    """Safety net: when no explicit lane was given (lane == default), route obvious
+    UGC monitors to the 'ugc' lane so they land in UGC OPS even if the caller forgot
+    --lane ugc. Only ever upgrades default -> ugc; never touches an explicit lane,
+    before_freedom, or a title that looks like a BF/episode job."""
+    if lane != DEFAULT_LANE:
+        return lane
+    t = (title or "").lower()
+    if any(m in t for m in _NON_UGC_MARKERS):
+        return lane
+    if re.search(r"\bep\d{2,4}\b", t):  # EP265-style episode ids are BF, not UGC
+        return lane
+    if any(m in t for m in _UGC_TITLE_MARKERS):
+        return "ugc"
+    return lane
+
+
+def load_env(lane=DEFAULT_LANE):
+    if not ENV_FILE.exists():
+        sys.exit(f"missing {ENV_FILE}")
+    file_env = {}
+    for line in ENV_FILE.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        file_env[k.strip()] = v.strip()
+    # General process/profile env still participates, but task-monitor routing
+    # must obey ~/.openclaw/.env HERMES_* values. This lets the user move monitor
+    # bubbles to the dedicated Before Freedom bot without gateway restarts or
+    # stale process-level Telegram vars pulling them back into the main chat.
+    env = {k: v for k, v in os.environ.items() if v}
+    env.update(file_env)
+    force_file = Path.home() / ".openclaw" / "task-monitor.enabled"
+    force_env = env.get("HERMES_TASK_MONITOR_FORCE_ENABLE", "").lower() in ("true", "1", "yes", "on")
+    # the user can explicitly enable the task monitor even when a Hermes profile
+    # exports HERMES_TASK_MONITOR_DISABLED=true. The profile flag exists to
+    # silence secondary agents, but the operator-facing orchestrator must be
+    # able to turn visibility back on without editing the gateway process env.
+    if env.get("HERMES_TASK_MONITOR_DISABLED", "").lower() in ("true", "1", "yes", "on") and not (force_env or force_file.exists()):
+        sys.exit("task-monitor disabled for this Hermes profile")
+
+    # Lane-aware routing: a non-default lane (e.g. before_freedom) resolves to its
+    # own bot+chat via ~/.openclaw/telegram_routes.json so its bubbles land in the
+    # right Telegram chat. The default lane preserves the historical fallback order.
+    lane = lane or DEFAULT_LANE
+    token = chat = None
+    if lane_route is not None:
+        creds = lane_route.resolve(lane, env)
+        token, chat = creds.get("token"), creds.get("chat")
+    if not token:
+        token = env.get("HERMES_TELEGRAM_BOT_TOKEN") or env.get("TELEGRAM_BOT_TOKEN")
+    if not chat:
+        chat = env.get("HERMES_TELEGRAM_CHAT_ID") or env.get("TELEGRAM_HOME_CHANNEL") or env.get("TELEGRAM_USER_ID")
+    if not token or not chat:
+        sys.exit("HERMES_TELEGRAM_BOT_TOKEN/HERMES_TELEGRAM_CHAT_ID or TELEGRAM_BOT_TOKEN/TELEGRAM_HOME_CHANNEL/TELEGRAM_USER_ID missing")
+    return token, chat
+
+
+def telegram(method, token, params):
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    data = urllib.parse.urlencode(params).encode()
+    req = urllib.request.Request(url, data=data)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        try:
+            return json.loads(body)
+        except Exception:
+            return {"ok": False, "error_code": e.code, "description": body}
+    except Exception as e:
+        return {"ok": False, "description": str(e)}
+
+
+# --------------------------------------------------------------------------
+# state
+# --------------------------------------------------------------------------
+
+def state_path(monitor_id):
+    return STATE_DIR / f"{monitor_id}.json"
+
+
+def peek_lane(monitor_id):
+    """Read just the stored lane for a monitor so later commands send through the
+    same bot/chat the monitor was created with. Defaults to the default lane."""
+    try:
+        return json.loads(state_path(monitor_id).read_text()).get("lane") or DEFAULT_LANE
+    except Exception:
+        return DEFAULT_LANE
+
+
+def normalize_stages(stages):
+    """Migrate old-format stages (single `detail` string) to new (`details` list)."""
+    for stg in stages:
+        if "details" not in stg:
+            old = stg.get("detail")
+            stg["details"] = [old] if old else []
+        stg.pop("detail", None)
+        # cap history
+        if len(stg["details"]) > MAX_DETAILS_PER_STAGE:
+            stg["details"] = stg["details"][-MAX_DETAILS_PER_STAGE:]
+    return stages
+
+
+def normalize_lanes(lanes):
+    """Lanes share the stage shape ({name,status,details[]}) — reuse the same
+    migration so parallel subagent rows behave exactly like stage rows."""
+    return normalize_stages(lanes)
+
+
+def load_state(monitor_id):
+    p = state_path(monitor_id)
+    if not p.exists():
+        sys.exit(f"monitor not found: {monitor_id}")
+    s = json.loads(p.read_text())
+    normalize_stages(s.get("stages", []))
+    s.setdefault("lanes", [])
+    normalize_lanes(s["lanes"])
+    return s
+
+
+def save_state(state):
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    p = state_path(state["id"])
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(state, indent=2))
+    os.replace(tmp, p)  # atomic-ish, avoids torn reads from the ticker
+
+
+@contextmanager
+def monitor_lock(monitor_id):
+    """Serialize read-modify-write on a single monitor's state. With fan-out, many
+    subagents update lanes on the SAME card concurrently; without this lock their
+    load_state -> mutate -> save_state sequences interleave and silently clobber
+    each other's lanes. flock is advisory but every writer goes through here."""
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = STATE_DIR / f"{monitor_id}.lock"
+    f = open(lock_path, "w")
+    try:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        finally:
+            f.close()
+
+
+# --------------------------------------------------------------------------
+# one-monitor-per-task dedup
+# --------------------------------------------------------------------------
+
+def task_key_of(title, explicit=None):
+    """Stable key for a task so repeated `start`/`launch` calls collapse onto
+    the same live bubble. One user task = one monitor."""
+    raw = (explicit or title or "").strip().lower()
+    return " ".join(raw.split())
+
+
+def bot_id_of(token):
+    """Telegram bot id (the part before ':'); isolates dedup per profile bot
+    even when two profiles point at the same chat_id."""
+    return (token or "").split(":", 1)[0]
+
+
+def ticker_alive(state):
+    pid = state.get("ticker_pid")
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+    except Exception:
+        return False
+
+
+def find_reusable_monitor(bot_id, chat_id, task_key):
+    """Return the most recent OPEN monitor for the same (bot, chat, task) within
+    REUSE_WINDOW, or None. This enforces one-monitor-per-task at the source so a
+    second `start` for a task already in flight reuses the live bubble instead of
+    spawning a duplicate."""
+    if not task_key or not STATE_DIR.exists():
+        return None
+    now = time.time()
+    best = None
+    for f in STATE_DIR.glob("tm_*.json"):
+        try:
+            s = json.loads(f.read_text())
+        except Exception:
+            continue
+        if s.get("closed"):
+            continue
+        if s.get("task_key") != task_key:
+            continue
+        if s.get("bot_id") != bot_id:
+            continue
+        if int(s.get("chat_id", -1)) != int(chat_id):
+            continue
+        if now - s.get("started_at", 0) > REUSE_WINDOW:
+            continue
+        if best is None or s.get("started_at", 0) > best.get("started_at", 0):
+            best = s
+    return best
+
+
+# --------------------------------------------------------------------------
+# rendering
+# --------------------------------------------------------------------------
+
+def elapsed(start_ts):
+    secs = max(0, int(time.time() - start_ts))
+    if secs < 60:
+        return f"{secs}s"
+    mins, s = divmod(secs, 60)
+    if mins < 60:
+        return f"{mins}m{s:02d}s"
+    h, m = divmod(mins, 60)
+    return f"{h}h{m:02d}m"
+
+
+def escape_md(text):
+    # Telegram "Markdown" (legacy) cares about * _ ` [ in most spots; the title
+    # is wrapped in *...*, so strip stray asterisks/underscores from the input.
+    return (text or "").replace("*", "").replace("_", " ")
+
+
+TELEGRAM_MAX = 4096           # hard Telegram message ceiling
+RENDER_SOFT_CAP = 3900        # rebuild compactly past this; leaves headroom
+
+
+def _details_window(status, details, compact=False):
+    """Same rolling-history rule used for stages and lanes."""
+    details = details or []
+    if status == "active":
+        return details[-1:] if compact else details[-3:]
+    if status == "done":
+        return details[-1:]
+    if status == "failed":
+        return details[-2:]
+    return []
+
+
+def _render_lines(state, compact_lanes=False):
+    lines = [f"🛠  *{escape_md(state['title'])}*", ""]
+
+    for stg in state["stages"]:
+        icon = ICONS.get(stg["status"], "•")
+        lines.append(f"{icon} {stg['name']}")
+        for d in _details_window(stg["status"], stg.get("details")):
+            lines.append(f"      ↳ {d}")
+
+    # Parallel lanes — one row per fan-out subagent, rendered like stages.
+    for lane in (state.get("lanes") or []):
+        icon = ICONS.get(lane["status"], "•")
+        lines.append(f"{icon} {escape_md(lane['name'])}")
+        # In compact mode, settled lanes collapse to a single icon+name line.
+        if compact_lanes and lane["status"] in ("done", "pending"):
+            continue
+        for d in _details_window(lane["status"], lane.get("details"), compact=compact_lanes):
+            lines.append(f"      ↳ {escape_md(d)}")
+
+    if state.get("notes"):
+        lines.append("")
+        for n in state["notes"][-4:]:
+            lines.append(f"· {n}")
+
+    lines.append("")
+
+    if state.get("closed"):
+        marker = "✅ Done" if state.get("result") == "success" else "❌ Failed"
+        lines.append(f"{marker}  ·  took {elapsed(state['started_at'])}")
+        if state.get("summary"):
+            lines.append("")
+            lines.append(state["summary"])
+    else:
+        lines.append(footer_status(state))
+
+    return lines
+
+
+def footer_status(state):
+    """Live/stalled footer. A monitor only counts as live while it is making
+    progress. If no real stage/detail change has landed for too long (longer when
+    work has already started, shorter when it never left 'pending'), the owning
+    turn almost certainly ended without finishing, so say so instead of lying
+    'live' forever."""
+    now = time.time()
+    started_at = state.get("started_at", now)
+    last_progress = state.get("last_progress_ts") or started_at
+    started_work = any(s.get("status") != "pending" for s in state.get("stages", [])) \
+        or any(l.get("status") != "pending" for l in (state.get("lanes") or []))
+    quiet_for = now - last_progress
+    threshold = STALL_THRESHOLD if started_work else NO_START_GRACE
+    if quiet_for > threshold:
+        why = "no progress" if started_work else "never started — run ended or waiting on you"
+        return f"⚠️ stalled · {why} · {elapsed(state['started_at'])} elapsed"
+    return f"_live · {elapsed(state['started_at'])}_"
+
+
+def render(state):
+    text = "\n".join(_render_lines(state))
+    # A card with many lanes (each with rolling details) can blow past Telegram's
+    # 4096-char limit, which makes editMessageText fail and eventually kills the
+    # ticker. Re-render compactly, then hard-truncate as a last resort.
+    if len(text) > RENDER_SOFT_CAP:
+        text = "\n".join(_render_lines(state, compact_lanes=True))
+    if len(text) > TELEGRAM_MAX:
+        text = text[:TELEGRAM_MAX - 16].rstrip() + "\n…(truncated)"
+    return text
+
+
+# --------------------------------------------------------------------------
+# telegram push
+# --------------------------------------------------------------------------
+
+def edit_message(token, state, text):
+    return telegram(
+        "editMessageText",
+        token,
+        {
+            "chat_id": state["chat_id"],
+            "message_id": state["message_id"],
+            "text": text,
+            "disable_web_page_preview": "true",
+        },
+    )
+
+
+def push_update(state, token):
+    """Render and send. Used by the foreground commands (stage/detail/note/lane/
+    finish) — never the cosmetic ticker — so this marks REAL progress: stamp
+    last_progress_ts so footer_status knows the work is still moving."""
+    state["last_progress_ts"] = time.time()
+    now = time.time()
+    last = state.get("last_edit_ts", 0)
+    if not state.get("closed") and (now - last) < MIN_EDIT_INTERVAL:
+        time.sleep(MIN_EDIT_INTERVAL - (now - last))
+    text = render(state)
+    resp = edit_message(token, state, text)
+    # On a Telegram throttle, wait out retry_after once and re-send so the
+    # transition isn't silently dropped at a fast cadence.
+    if not resp.get("ok") and resp.get("error_code") == 429:
+        _ra = (resp.get("parameters") or {}).get("retry_after", 1)
+        try:
+            time.sleep(min(float(_ra), 30))
+        except (TypeError, ValueError):
+            time.sleep(1)
+        resp = edit_message(token, state, text)
+    if not resp.get("ok"):
+        desc = resp.get("description", "") or ""
+        if "not modified" not in desc:
+            print(f"warn: edit failed: {desc}", file=sys.stderr)
+    state["last_edit_ts"] = time.time()
+    save_state(state)
+
+
+# --------------------------------------------------------------------------
+# background ticker
+# --------------------------------------------------------------------------
+
+def spawn_ticker(monitor_id):
+    """Fork a detached background process that refreshes the message every TICK_INTERVAL."""
+    self_path = os.path.realpath(__file__)
+    devnull = open(os.devnull, "rb+")
+    proc = subprocess.Popen(
+        [sys.executable, self_path, "_tick", monitor_id],
+        stdin=devnull,
+        stdout=devnull,
+        stderr=devnull,
+        start_new_session=True,
+        close_fds=True,
+    )
+    return proc.pid
+
+
+def stop_ticker(state):
+    pid = state.get("ticker_pid")
+    if not pid:
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except Exception:
+        pass
+    # Brief settle so the ticker doesn't race the final edit
+    time.sleep(0.3)
+
+
+def cmd_tick(args):
+    """Internal: long-running loop that re-renders the monitor every TICK_INTERVAL seconds.
+    Exits cleanly when the monitor is closed, missing, or older than MAX_TICKER_LIFETIME."""
+    monitor_id = args.id
+    token, _ = load_env(peek_lane(monitor_id))
+    last_text = None
+    consecutive_errors = 0
+    started = time.time()
+
+    # Trap SIGTERM/SIGINT for clean exit when finish() kills us
+    def _bye(signum, frame):
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, _bye)
+    signal.signal(signal.SIGINT, _bye)
+
+    while True:
+        time.sleep(TICK_INTERVAL)
+
+        if time.time() - started > MAX_TICKER_LIFETIME:
+            return
+
+        try:
+            p = state_path(monitor_id)
+            if not p.exists():
+                return
+            state = json.loads(p.read_text())
+            normalize_stages(state.get("stages", []))
+            state.setdefault("lanes", [])
+            normalize_lanes(state["lanes"])
+            if state.get("closed"):
+                return
+
+            text = render(state)
+            if text == last_text:
+                continue
+
+            resp = edit_message(token, state, text)
+
+            # Telegram throttle (429): respect retry_after and re-send next loop
+            # rather than counting it as a hard error. Keeps a 1s cadence alive.
+            if not resp.get("ok") and resp.get("error_code") == 429:
+                _ra = (resp.get("parameters") or {}).get("retry_after", 1)
+                try:
+                    time.sleep(min(float(_ra), 30))
+                except (TypeError, ValueError):
+                    time.sleep(1)
+                continue  # leave last_text unchanged so we retry the same render
+
+            last_text = text
+
+            desc = (resp.get("description") or "") if not resp.get("ok") else ""
+            if desc and "not modified" not in desc:
+                consecutive_errors += 1
+                if consecutive_errors >= 5:
+                    return
+            else:
+                consecutive_errors = 0
+
+        except json.JSONDecodeError:
+            # state file mid-write, skip this tick
+            continue
+        except Exception:
+            consecutive_errors += 1
+            if consecutive_errors >= 5:
+                return
+
+
+# --------------------------------------------------------------------------
+# user-facing commands
+# --------------------------------------------------------------------------
+
+def cmd_start(args):
+    title = args.title or "Task"
+    lane = classify_lane(resolve_lane(getattr(args, "lane", None)), title)
+    token, chat = load_env(lane)
+    bot_id = bot_id_of(token)
+    task_key = task_key_of(title, getattr(args, "task", None))
+
+    # One user task = one monitor. If a live monitor already exists for this
+    # exact task (same bot + chat, within the reuse window), reuse it instead of
+    # spawning a duplicate bubble. Errors, retries, repair loops and delivery all
+    # belong in this one monitor. --force overrides for genuinely new work that
+    # happens to share a title.
+    if not getattr(args, "force", False):
+        existing = find_reusable_monitor(bot_id, chat, task_key)
+        if existing is not None:
+            if not ticker_alive(existing):
+                try:
+                    existing["ticker_pid"] = spawn_ticker(existing["id"])
+                    save_state(existing)
+                except Exception as e:
+                    print(f"warn: ticker respawn failed: {e}", file=sys.stderr)
+            print(f"reusing live monitor for task: {task_key}", file=sys.stderr)
+            print(existing["id"])
+            return
+
+    # `--stages ""` means "no stages" (lane-only workflow card); only fall back to
+    # the default set when --stages is omitted entirely (None).
+    raw_stages = args.stages if args.stages is not None else "Research,Planning,Building,Deploy"
+    stages = [s.strip() for s in raw_stages.split(",") if s.strip()]
+    monitor_id = "tm_" + secrets.token_hex(4)
+    state = {
+        "id": monitor_id,
+        "chat_id": int(chat),
+        "bot_id": bot_id,
+        "lane": lane,
+        "task_key": task_key,
+        "title": title,
+        "started_at": time.time(),
+        "stages": [{"name": s, "status": "pending", "details": []} for s in stages],
+        "lanes": [],
+        "notes": [],
+        "closed": False,
+        "result": None,
+        "summary": None,
+        "message_id": None,
+        "last_edit_ts": 0,
+        "last_progress_ts": time.time(),
+        "ticker_pid": None,
+    }
+    text = render(state)
+    resp = telegram(
+        "sendMessage",
+        token,
+        {
+            "chat_id": chat,
+            "text": text,
+            "disable_web_page_preview": "true",
+        },
+    )
+    if not resp.get("ok"):
+        sys.exit(f"sendMessage failed: {resp}")
+    state["message_id"] = resp["result"]["message_id"]
+    save_state(state)
+
+    # Spawn the background ticker so the timer keeps moving
+    try:
+        state["ticker_pid"] = spawn_ticker(monitor_id)
+        save_state(state)
+    except Exception as e:
+        print(f"warn: ticker spawn failed: {e}", file=sys.stderr)
+
+    print(monitor_id)
+
+
+def cmd_stage(args):
+    token, _ = load_env(peek_lane(args.id))
+    status = args.status
+    if status not in ICONS:
+        sys.exit(f"status must be one of {list(ICONS)}")
+    name = args.name
+    with monitor_lock(args.id):
+        state = load_state(args.id)
+        if state.get("closed"):
+            sys.exit("monitor already closed")
+
+        found = None
+        for stg in state["stages"]:
+            if stg["name"].lower() == name.lower():
+                found = stg
+                break
+        if not found:
+            found = {"name": name, "status": "pending", "details": []}
+            state["stages"].append(found)
+
+        found["status"] = status
+        if args.detail:
+            found["details"].append(args.detail)
+            if len(found["details"]) > MAX_DETAILS_PER_STAGE:
+                found["details"] = found["details"][-MAX_DETAILS_PER_STAGE:]
+
+        # When marking active, auto-close any previously-active stage
+        if status == "active":
+            for stg in state["stages"]:
+                if stg is not found and stg["status"] == "active":
+                    stg["status"] = "done"
+
+        push_update(state, token)
+
+
+def cmd_lane(args):
+    """Create/update a parallel lane (one row per fan-out subagent). Upserts by
+    name like cmd_stage, but tolerates a closed card (a straggler subagent's late
+    update is a no-op instead of a crash) and respawns the ticker so the live
+    timer keeps moving across a long fan-out."""
+    token, _ = load_env(peek_lane(args.id))
+    status = args.status
+    if status not in ICONS:
+        sys.exit(f"status must be one of {list(ICONS)}")
+    name = args.name
+    with monitor_lock(args.id):
+        state = load_state(args.id)
+        if state.get("closed"):
+            return  # late lane update on an already-closed card — tolerate, don't crash
+
+        state.setdefault("lanes", [])
+        found = None
+        for lane in state["lanes"]:
+            if lane["name"].lower() == name.lower():
+                found = lane
+                break
+        if not found:
+            found = {"name": name, "status": "pending", "details": []}
+            state["lanes"].append(found)
+
+        found["status"] = status
+        if args.detail:
+            found["details"].append(args.detail)
+            if len(found["details"]) > MAX_DETAILS_PER_STAGE:
+                found["details"] = found["details"][-MAX_DETAILS_PER_STAGE:]
+
+        # Long parallel runs can outlive the original ticker (MAX_TICKER_LIFETIME);
+        # respawn it on lane activity so the elapsed clock doesn't freeze.
+        if not ticker_alive(state):
+            try:
+                state["ticker_pid"] = spawn_ticker(state["id"])
+            except Exception as e:
+                print(f"warn: ticker respawn failed: {e}", file=sys.stderr)
+
+        push_update(state, token)
+
+
+def cmd_lanes_done(args):
+    """Exit 0 iff the card has at least one lane and every lane is done/failed.
+    The finish hook uses this to let the LAST subagent close the workflow card."""
+    try:
+        state = load_state(args.id)
+    except SystemExit:
+        sys.exit(1)
+    lanes = state.get("lanes", [])
+    if not lanes:
+        sys.exit(1)
+    for lane in lanes:
+        if lane["status"] not in ("done", "failed"):
+            sys.exit(1)
+    sys.exit(0)
+
+
+def cmd_detail(args):
+    token, _ = load_env(peek_lane(args.id))
+    with monitor_lock(args.id):
+        state = load_state(args.id)
+        if state.get("closed"):
+            sys.exit("monitor already closed")
+
+        target = None
+        for stg in state["stages"]:
+            if stg["status"] == "active":
+                target = stg
+                break
+        if not target:
+            for stg in state["stages"]:
+                if stg["status"] in ("pending", "failed"):
+                    target = stg
+                    break
+        if not target:
+            sys.exit("no active stage to attach detail to")
+
+        target["details"].append(args.text)
+        if len(target["details"]) > MAX_DETAILS_PER_STAGE:
+            target["details"] = target["details"][-MAX_DETAILS_PER_STAGE:]
+
+        push_update(state, token)
+
+
+def cmd_note(args):
+    token, _ = load_env(peek_lane(args.id))
+    with monitor_lock(args.id):
+        state = load_state(args.id)
+        if state.get("closed"):
+            sys.exit("monitor already closed")
+        state.setdefault("notes", []).append(args.text)
+        push_update(state, token)
+
+
+def cmd_finish(args):
+    token, _ = load_env(peek_lane(args.id))
+    with monitor_lock(args.id):
+        state = load_state(args.id)
+
+        # Stop the ticker BEFORE the final edit so it doesn't overwrite us
+        stop_ticker(state)
+
+        result = "success"
+        if args.fail:
+            result = "failed"
+        elif args.success:
+            result = "success"
+
+        state["closed"] = True
+        state["result"] = result
+        state["summary"] = args.summary
+        state["ticker_pid"] = None
+
+        for stg in state["stages"]:
+            if stg["status"] == "active":
+                stg["status"] = "done" if result == "success" else "failed"
+            if stg["status"] == "pending" and result == "failed":
+                stg["status"] = "failed"
+
+        for lane in state.get("lanes", []):
+            if lane["status"] == "active":
+                lane["status"] = "done" if result == "success" else "failed"
+            if lane["status"] == "pending" and result == "failed":
+                lane["status"] = "failed"
+
+        push_update(state, token)
+
+
+def cmd_show(args):
+    state = load_state(args.id)
+    print(render(state))
+
+
+# --------------------------------------------------------------------------
+# entrypoint
+# --------------------------------------------------------------------------
+
+def main():
+    p = argparse.ArgumentParser(prog="task-monitor")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("start", help="create a new monitor bubble (reuses a live one for the same task)")
+    s.add_argument("title")
+    s.add_argument("--stages", help="comma-separated stage names")
+    s.add_argument("--task", help="explicit task key for one-monitor-per-task dedup (defaults to the title)")
+    s.add_argument("--lane", help="routing lane (e.g. before_freedom) -> which bot/chat the bubble is sent through; defaults to HERMES_MONITOR_LANE or 'default'")
+    s.add_argument("--force", action="store_true", help="always create a new monitor even if one is live for this task")
+    s.set_defaults(func=cmd_start)
+
+    # `launch` is an alias of `start`: same one-monitor-per-task behavior, with an
+    # optional title so older callers (`task-monitor.py launch`) keep working.
+    s = sub.add_parser("launch", help="alias of start; reuses a live monitor for the same task")
+    s.add_argument("title", nargs="?", default="Task")
+    s.add_argument("--stages", help="comma-separated stage names")
+    s.add_argument("--task", help="explicit task key for one-monitor-per-task dedup (defaults to the title)")
+    s.add_argument("--lane", help="routing lane (e.g. before_freedom) -> which bot/chat the bubble is sent through; defaults to HERMES_MONITOR_LANE or 'default'")
+    s.add_argument("--force", action="store_true", help="always create a new monitor even if one is live for this task")
+    s.set_defaults(func=cmd_start)
+
+    s = sub.add_parser("stage", help="set a stage status")
+    s.add_argument("id")
+    s.add_argument("name")
+    s.add_argument("status", choices=list(ICONS))
+    s.add_argument("--detail", help="append a detail line to that stage")
+    s.set_defaults(func=cmd_stage)
+
+    s = sub.add_parser("lane", help="set a parallel lane status (one row per fan-out subagent)")
+    s.add_argument("id")
+    s.add_argument("name")
+    s.add_argument("status", choices=list(ICONS))
+    s.add_argument("--detail", help="append a detail line to that lane")
+    s.set_defaults(func=cmd_lane)
+
+    s = sub.add_parser("lanes-done", help="exit 0 iff every lane on the card is done/failed")
+    s.add_argument("id")
+    s.set_defaults(func=cmd_lanes_done)
+
+    s = sub.add_parser("detail", help="append a detail line to the active stage")
+    s.add_argument("id")
+    s.add_argument("text")
+    s.set_defaults(func=cmd_detail)
+
+    s = sub.add_parser("note", help="append a free-form note line")
+    s.add_argument("id")
+    s.add_argument("text")
+    s.set_defaults(func=cmd_note)
+
+    s = sub.add_parser("finish", help="close the monitor")
+    s.add_argument("id")
+    s.add_argument("--success", action="store_true")
+    s.add_argument("--fail", action="store_true")
+    s.add_argument("--summary")
+    s.set_defaults(func=cmd_finish)
+
+    s = sub.add_parser("show", help="print current rendered text")
+    s.add_argument("id")
+    s.set_defaults(func=cmd_show)
+
+    s = sub.add_parser("_tick", help=argparse.SUPPRESS)  # internal
+    s.add_argument("id")
+    s.set_defaults(func=cmd_tick)
+
+    args = p.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
