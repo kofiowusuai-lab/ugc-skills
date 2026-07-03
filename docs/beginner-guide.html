@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Get the UGC Skills — Beginner's Guide</title>
+<style>
+  @page { size: Letter; margin: 18mm 20mm; }
+  :root{
+    --ink:#0f1720; --muted:#5b6b7a; --line:#e2e8ee; --soft:#f4f7fa;
+    --accent:#0d6efd; --accent2:#0a8f6b; --code-bg:#0f1720; --code-ink:#e8eef5;
+    --warn-bg:#fff8e6; --warn-line:#f0d38a; --ok-bg:#eafaf3; --ok-line:#9fe3c7;
+    --red:#e62828;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    color:var(--ink); font-size:12px; line-height:1.65; -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  h1,h2,h3{ line-height:1.25; margin:0; }
+  code{ background:var(--soft); border:1px solid var(--line); border-radius:4px; padding:1px 6px; font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; font-size:.9em; color:#0b3d63; }
+  pre{
+    background:var(--code-bg); color:var(--code-ink); border-radius:10px; padding:14px 16px;
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; font-size:11.5px; line-height:1.6; margin:10px 0;
+    white-space:pre-wrap; word-break:break-word; break-inside:avoid;
+  }
+  pre .c{ color:#7f97ab; }
+  a{ color:var(--accent); text-decoration:none; }
+
+  .cover{ padding:6mm 0 5mm; border-bottom:3px solid var(--ink); margin-bottom:7mm; }
+  .kicker{ font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--accent); font-weight:700; }
+  .cover h1{ font-size:36px; letter-spacing:-.5px; margin:8px 0 8px; }
+  .cover .sub{ font-size:15px; color:var(--muted); max-width:44em; }
+  .cover .badges{ margin-top:14px; font-size:12px; color:var(--muted); }
+  .pill{ display:inline-block; background:var(--ok-bg); border:1px solid var(--ok-line); color:#0a5c40; border-radius:20px; padding:3px 12px; font-size:11.5px; font-weight:600; margin-right:6px; }
+
+  section{ margin:0 0 6mm; }
+  h2{ font-size:19px; margin:0 0 6px; }
+  h3{ font-size:14px; margin:14px 0 4px; }
+  p{ margin:7px 0; }
+  .lead{ color:var(--muted); font-size:12.5px; }
+  ul{ margin:7px 0; padding-left:20px; }
+  li{ margin:4px 0; }
+
+  .analogy{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:11px; margin:10px 0; }
+  .analogy .card{ border:1px solid var(--line); border-radius:11px; padding:13px 15px; background:#fff; }
+  .analogy .word{ font-weight:700; font-size:13px; color:var(--accent2); margin-bottom:3px; }
+  .analogy .card p{ margin:2px 0; font-size:11.5px; }
+
+  .step{ display:flex; gap:13px; margin:11px 0; break-inside:avoid; }
+  .step .n{ flex:0 0 auto; width:30px; height:30px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; font-size:15px; display:flex; align-items:center; justify-content:center; }
+  .step .body{ flex:1; }
+  .step .body h3{ margin:2px 0 3px; font-size:14.5px; }
+  .step .body p{ margin:4px 0; }
+
+  figure{ margin:11px 0; break-inside:avoid; }
+  figure img{ width:100%; border:1px solid var(--line); border-radius:10px; display:block; }
+  figcaption{ font-size:10.8px; color:var(--muted); margin-top:6px; text-align:center; }
+
+  .callout{ border-radius:10px; padding:11px 14px; margin:10px 0; font-size:11.8px; border:1px solid; break-inside:avoid; }
+  .callout.warn{ background:var(--warn-bg); border-color:var(--warn-line); }
+  .callout.ok{ background:var(--ok-bg); border-color:var(--ok-line); }
+  .callout.tip{ background:#eef4ff; border-color:#bcd4ff; }
+  .callout b{ color:var(--ink); }
+
+  .os{ display:grid; grid-template-columns:1fr 1fr; gap:11px; margin:10px 0; }
+  .os .card{ border:1px solid var(--line); border-radius:11px; padding:13px 15px; }
+  .os .card h3{ margin:0 0 5px; font-size:13.5px; }
+  .os .card .tag{ display:inline-block; font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:#fff; background:var(--ink); border-radius:5px; padding:2px 8px; margin-bottom:6px; }
+
+  table{ width:100%; border-collapse:collapse; margin:9px 0; font-size:11.5px; break-inside:avoid; }
+  th,td{ text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th{ background:var(--soft); font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+
+  .pagebreak{ page-break-before:always; }
+  h2,h3{ break-after:avoid; }
+  .foot{ margin-top:7mm; padding-top:6px; border-top:1px solid var(--line); font-size:10px; color:var(--muted); display:flex; justify-content:space-between; }
+  .big-part{ font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); font-weight:700; margin:2mm 0 1mm; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="kicker">Academy · Resource</div>
+  <h1>How to Get the UGC Skills</h1>
+  <div class="sub">A step-by-step guide for complete beginners. If you have never used GitHub, a terminal, or written a line of code, this is written for you. Follow it in order and nothing will be assumed.</div>
+  <div class="badges">
+    <span class="pill">No coding needed</span>
+    <span class="pill">No GitHub account needed</span>
+    <span class="pill">~20 minutes</span>
+  </div>
+</div>
+
+<section>
+  <h2>First, three words explained</h2>
+  <p class="lead">You will see these words a lot. Here is all they mean, in plain English.</p>
+  <div class="analogy">
+    <div class="card">
+      <div class="word">GitHub</div>
+      <p>A website where people store and share files of code. Think of it like Google Drive, but made for programs instead of documents.</p>
+    </div>
+    <div class="card">
+      <div class="word">Repository (or "repo")</div>
+      <p>One project's folder on GitHub. Ours is the folder of UGC skills. A repo is just a named box of files you can look at or copy.</p>
+    </div>
+    <div class="card">
+      <div class="word">Download / clone</div>
+      <p>Copying that folder from the website onto your own computer so you can use it. We will use the simplest way: a plain download.</p>
+    </div>
+  </div>
+  <div class="callout tip"><b>The whole plan in one line:</b> download the folder → run one setup command → then just talk to Claude and it makes videos. That is it.</div>
+</section>
+
+<section>
+  <div class="big-part">Part A</div>
+  <h2>Get the files onto your computer</h2>
+  <p class="lead">You do not need a GitHub account for this. You are only downloading a folder, like downloading any file from the internet.</p>
+
+  <div class="step">
+    <div class="n">1</div>
+    <div class="body">
+      <h3>Open the link in your web browser</h3>
+      <p>Type or click this address. Any browser works (Chrome, Safari, Edge):</p>
+      <pre>https://github.com/kofiowusuai-lab/ugc-skills</pre>
+      <p>You will land on the page shown below. It looks busy, but you only need two buttons on it.</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">2</div>
+    <div class="body">
+      <h3>Click the green "Code" button, then "Download ZIP"</h3>
+      <p>Find the green <b>Code</b> button on the right (marked <b>1</b> below). Click it. A small menu opens. At the bottom of that menu, click <b>Download ZIP</b> (marked <b>2</b>).</p>
+      <figure>
+        <img src="img/download-annotated.png" alt="GitHub page with the green Code button and Download ZIP highlighted">
+        <figcaption>Click the green <b>Code</b> button (1), then <b>Download ZIP</b> (2) at the bottom of the menu.</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">3</div>
+    <div class="body">
+      <h3>Unzip the file you downloaded</h3>
+      <p>A file called <code>ugc-skills-main.zip</code> lands in your <b>Downloads</b> folder. Double-click it. It turns into a normal folder named <code>ugc-skills-main</code>. That folder holds all the skills. Leave it in Downloads for now, or drag it to your Desktop so it is easy to find.</p>
+    </div>
+  </div>
+  <div class="callout ok"><b>Done with Part A.</b> The files are now on your computer. The rest is a one-time setup so Claude can see them.</div>
+</section>
+
+<div class="pagebreak"></div>
+
+<section>
+  <div class="big-part">Part B</div>
+  <h2>Open the Terminal</h2>
+  <p class="lead">The Terminal is a plain app already on your computer where you type commands instead of clicking. It looks bare, but you will only paste a few lines. Nothing here can break your computer.</p>
+  <div class="os">
+    <div class="card">
+      <span class="tag">Mac</span>
+      <h3>Open Terminal</h3>
+      <p>Press <code>Command (⌘)</code> and <code>Space</code> together. A search box appears. Type <b>Terminal</b> and press <code>Return</code>. A small window opens. That is it.</p>
+    </div>
+    <div class="card">
+      <span class="tag">Windows</span>
+      <h3>Open Git Bash</h3>
+      <p>Install <b>Git for Windows</b> from <code>git-scm.com</code> (click through the installer with the default options). Then open the Start menu, type <b>Git Bash</b>, and click it. Use that window for the steps below.</p>
+    </div>
+  </div>
+  <div class="callout tip"><b>Tip:</b> keep this Terminal window open for all of Part C. If you close it, just open it again the same way.</div>
+</section>
+
+<section>
+  <div class="big-part">Part C</div>
+  <h2>Set it up (one time)</h2>
+  <p class="lead">Four short steps. For each one, copy the line, paste it into the Terminal, and press <code>Return</code>. To paste in Terminal, use <code>Command+V</code> on Mac (right-click on Windows).</p>
+
+  <div class="step">
+    <div class="n">1</div>
+    <div class="body">
+      <h3>Go into the folder</h3>
+      <p>Type the word <code>cd</code> and one space, but do <b>not</b> press Return yet. Then drag the <code>ugc-skills-main</code> folder from your Desktop (or Downloads) and drop it right onto the Terminal window. It fills in the location for you. Now press <code>Return</code>.</p>
+      <pre><span class="c"># after the drag, your line will look something like this:</span>
+cd /Users/you/Desktop/ugc-skills-main</pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">2</div>
+    <div class="body">
+      <h3>Run the installer</h3>
+      <p>This copies the skills into the right place for Claude. Paste this and press Return:</p>
+      <pre>bash install.sh</pre>
+      <p>You will see a few lines of text scroll by. When it stops and shows the setup notes, it worked.</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">3</div>
+    <div class="body">
+      <h3>Add your keys</h3>
+      <p>The skills use paid services (for voices and video). You paste your keys into a small settings file. First make the file:</p>
+      <pre>cp .env.example .env</pre>
+      <p>Open the new <code>.env</code> file (on Mac, run <code>open .env</code>; on Windows, open it from the folder in Notepad), paste your keys after the equals signs, and save. Then load it:</p>
+      <pre>set -a; . ./.env; set +a</pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">4</div>
+    <div class="body">
+      <h3>Install the helper pieces</h3>
+      <p>One last line downloads the small tools the skills use:</p>
+      <pre>python3 -m pip install -r requirements.txt</pre>
+    </div>
+  </div>
+  <div class="callout ok"><b>Setup finished.</b> You never have to do Part B or C again. From now on you just open Claude and ask.</div>
+</section>
+
+<div class="pagebreak"></div>
+
+<section>
+  <div class="big-part">Part D</div>
+  <h2>Use it</h2>
+  <p class="lead">Open Claude Code and type <code>/</code>. You should see the <code>ugc-</code> skills appear in the list. You do not need to remember any commands. Just describe what you want, like this:</p>
+  <pre><span class="c">you type:</span>
+make a 6-second UGC clip of a woman in a kitchen saying
+"honestly this changed how I meal prep" using the brittney voice</pre>
+  <p>Claude takes over from there: it plans the shot, generates the video, adds the voice, and hands you a finished clip. Start with short clips while you learn, then ask for full ads once you are comfortable.</p>
+  <div class="callout warn"><b>A note on cost:</b> the voice and video services charge a small amount each time you generate. Begin with one short clip to confirm everything works before you make a batch.</div>
+</section>
+
+<section>
+  <h2>If something goes wrong</h2>
+  <table>
+    <tr><th>What you see</th><th>What to do</th></tr>
+    <tr><td>The skills do not appear in Claude</td><td>Close Claude Code and open it again so it re-reads the skills folder.</td></tr>
+    <tr><td><code>command not found</code></td><td>You may have missed a word when pasting. Copy the whole line again exactly.</td></tr>
+    <tr><td>A message about a missing "key"</td><td>Run this line again in the same window: <code>set -a; . ./.env; set +a</code></td></tr>
+    <tr><td>You closed the Terminal</td><td>Open it again (Part B) and run the <code>cd</code> drag step again before your commands.</td></tr>
+    <tr><td>Still stuck</td><td>Read <code>README.md</code> inside the folder, or ask in the Academy group. Copy the exact red error text so someone can help fast.</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Words you will hear</h2>
+  <table>
+    <tr><th>Word</th><th>Plain meaning</th></tr>
+    <tr><td>Repo</td><td>A project folder on GitHub. Ours holds the UGC skills.</td></tr>
+    <tr><td>Clone / download</td><td>Making your own copy of that folder on your computer.</td></tr>
+    <tr><td>Terminal</td><td>The app where you type commands instead of clicking buttons.</td></tr>
+    <tr><td>Install</td><td>Setting the files up so a program (Claude) can use them.</td></tr>
+    <tr><td>Skill</td><td>An ability you add to Claude. Here, making UGC videos.</td></tr>
+    <tr><td>API key</td><td>A password-like code that lets the tools use a paid service on your behalf.</td></tr>
+  </table>
+</section>
+
+<div class="foot">
+  <span>How to Get the UGC Skills · Beginner's Guide</span>
+  <span>github.com/kofiowusuai-lab/ugc-skills</span>
+</div>
+
+</body>
+</html>
